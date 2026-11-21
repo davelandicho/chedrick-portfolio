@@ -2,7 +2,7 @@
   var root = document.documentElement, KEY = "portfolio-theme";
   var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-  /* ---------- theme toggle (saved theme is applied earlier by the inline script in <head>) ---------- */
+  /* theme toggle */
   var themeBtn = document.getElementById("theme-toggle");
   var mq = window.matchMedia("(prefers-color-scheme: dark)");
   function effective() {
@@ -24,13 +24,13 @@
   mq.addEventListener("change", syncTheme);
   syncTheme();
 
-  /* ---------- nav: sits at 70px like the design, sticks to the top once you scroll past it ---------- */
+  /* nav */
   var nav = document.getElementById("nav");
   function onScroll() { nav.classList.toggle("stuck", window.scrollY > 54); }
   window.addEventListener("scroll", onScroll, { passive: true });
   onScroll();
 
-  /* ---------- mobile menu ---------- */
+  /* mobile menu */
   var menu = document.getElementById("menu-toggle");
   function setOpen(open) {
     nav.classList.toggle("open", open);
@@ -44,7 +44,7 @@
     if (e.key === "Escape" && nav.classList.contains("open")) { setOpen(false); menu.focus(); }
   });
 
-  /* ---------- prototype "Scroll to" links: ease-out scroll with the durations set in Figma ---------- */
+  /* smooth scroll links */
   function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
   document.querySelectorAll("a[data-scroll-ms]").forEach(function (a) {
     a.addEventListener("click", function (e) {
@@ -67,12 +67,11 @@
     });
   });
 
-  /* links without a destination yet (e.g. project Visit buttons) do nothing */
   document.querySelectorAll('a[aria-disabled="true"]').forEach(function (a) {
     a.addEventListener("click", function (e) { e.preventDefault(); });
   });
 
-  /* ---------- star ratings ---------- */
+  /* star ratings */
   var STAR = '<path d="M5 .6l1.3 2.8 3 .3-2.3 2 .7 3L5 7.1 2.3 8.7l.7-3-2.3-2 3-.3z"/>';
   document.querySelectorAll(".stars[data-rating]").forEach(function (el) {
     var n = Math.max(0, Math.min(5, Number(el.getAttribute("data-rating")) || 0)), html = "";
@@ -82,7 +81,98 @@
     el.setAttribute("aria-label", n + " out of 5");
   });
 
-  /* ---------- experience "Show All" ---------- */
+  /* carousel */
+  var phone = window.matchMedia("(max-width: 640px)");
+  document.querySelectorAll(".carousel-nav[data-carousel-for]").forEach(function (nav) {
+    var track = document.getElementById(nav.getAttribute("data-carousel-for"));
+    if (!track) return;
+    var real = Array.prototype.slice.call(track.children);
+    var n = real.length, CLONES = 2;
+    var dotsBox = nav.querySelector(".carousel-dots"), prev = nav.querySelector(".prev"), next = nav.querySelector(".next");
+    var all = real, on = false, raf = 0, settleTimer = 0;
+
+    var dots = real.map(function (slide, i) {
+      var name = slide.querySelector(".tool b");
+      var d = document.createElement("button");
+      d.type = "button";
+      d.setAttribute("aria-label", "Show skill " + (i + 1) + (name ? ": " + name.textContent : ""));
+      d.addEventListener("click", function () { goTo(i + CLONES, true); });
+      dotsBox.appendChild(d);
+      return d;
+    });
+
+    function makeClone(el) {
+      var c = el.cloneNode(true);
+      c.classList.add("is-clone");
+      c.setAttribute("aria-hidden", "true");
+      return c;
+    }
+    function centerOf(i) { var el = all[i]; return el.offsetLeft - track.offsetLeft + el.offsetWidth / 2 - track.clientWidth / 2; }
+    function nearest() {
+      var x = track.scrollLeft, best = 0, bestD = Infinity;
+      all.forEach(function (_, i) { var d = Math.abs(centerOf(i) - x); if (d < bestD) { bestD = d; best = i; } });
+      return best;
+    }
+    function realIndex(i) { return ((i - CLONES) % n + n) % n; }
+    function goTo(i, smooth) {
+      track.scrollTo({ left: centerOf(i), behavior: smooth && !reduceMotion.matches ? "smooth" : "auto" });
+    }
+    function paint() {
+      var i = nearest(), r = realIndex(i);
+      all.forEach(function (el, j) { el.classList.toggle("is-active", j === i); });
+      dots.forEach(function (d, j) { d.setAttribute("aria-current", String(j === r)); });
+    }
+    function settle() {
+      var i = nearest();
+      if (i < CLONES || i >= CLONES + n) {
+        var target = realIndex(i) + CLONES;
+        track.style.scrollSnapType = "none";
+        goTo(target, false);
+        track.offsetHeight;
+        track.style.scrollSnapType = "";
+      }
+      paint();
+    }
+    function onScroll() {
+      cancelAnimationFrame(raf); raf = requestAnimationFrame(paint);
+      clearTimeout(settleTimer); settleTimer = setTimeout(settle, 140);
+    }
+
+    function enable() {
+      if (on) return;
+      on = true;
+      var head = real.slice(-CLONES).map(makeClone), tail = real.slice(0, CLONES).map(makeClone);
+      head.forEach(function (c) { track.insertBefore(c, real[0]); });
+      tail.forEach(function (c) { track.appendChild(c); });
+      all = Array.prototype.slice.call(track.children);
+      track.classList.add("is-carousel");
+      goTo(CLONES, false);
+      paint();
+      track.addEventListener("scroll", onScroll, { passive: true });
+    }
+    function disable() {
+      if (!on) return;
+      on = false;
+      track.removeEventListener("scroll", onScroll);
+      track.querySelectorAll(".is-clone").forEach(function (c) { c.remove(); });
+      all = real;
+      real.forEach(function (el) { el.classList.remove("is-active"); });
+      track.classList.remove("is-carousel");
+      track.scrollLeft = 0;
+    }
+
+    prev.addEventListener("click", function () { goTo(nearest() - 1, true); });
+    next.addEventListener("click", function () { goTo(nearest() + 1, true); });
+    track.addEventListener("click", function (e) {
+      var card = e.target.closest(".skill");
+      if (on && card && !card.classList.contains("is-active")) goTo(all.indexOf(card), true);
+    });
+    window.addEventListener("resize", function () { if (on) { goTo(nearest(), false); paint(); } });
+    phone.addEventListener("change", function (e) { if (e.matches) enable(); else disable(); });
+    if (phone.matches) enable();
+  });
+
+  /* experience show all */
   var xpList = document.getElementById("xp-list"), showAll = document.getElementById("show-all");
   if (xpList && showAll) {
     if (xpList.children.length <= 3) showAll.hidden = true;
@@ -94,7 +184,7 @@
     });
   }
 
-  /* ---------- FAQ: one answer open at a time ---------- */
+  /* faq */
   var faqs = document.querySelectorAll(".faq details");
   faqs.forEach(function (d) {
     d.addEventListener("toggle", function () {
@@ -102,8 +192,9 @@
     });
   });
 
-  /* ---------- Let's Connect overlay (prototype: Let's Talk → overlay, move in from right, 70% scrim, close on outside click) ---------- */
+  /* let's connect */
   var EMAIL = "chedrickivansalazar@gmail.com";
+  var WEB3FORMS_KEY = "ffebf8e6-5803-41ab-9c22-24f1eaf612f5";
   var dlg = document.createElement("dialog");
   dlg.className = "connect";
   dlg.setAttribute("aria-labelledby", "connect-title");
@@ -117,16 +208,26 @@
     '<div><label for="c-name">Name</label><input id="c-name" name="name" autocomplete="name" placeholder="Enter your name" required></div>' +
     '<div class="email-f"><label for="c-email">Email</label><input id="c-email" name="email" type="email" autocomplete="email" placeholder="Enter your email" required></div>' +
     '<div class="full msg"><label for="c-msg">Message</label><textarea id="c-msg" name="message" required></textarea></div>' +
+    '<input class="hp" type="checkbox" name="botcheck" tabindex="-1" autocomplete="off" aria-hidden="true">' +
     '<p class="err" role="alert" aria-live="polite"></p>' +
     '<button class="send" type="submit">Send Message</button>' +
-    "</form>";
+    "</form>" +
+    '<div class="sent" hidden tabindex="-1">' +
+    '<span class="tick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>' +
+    "<h3>Message sent</h3>" +
+    "<p>Thanks for reaching out. I’ll get back to you at the email you entered as soon as I can.</p>" +
+    '<button class="send again" type="button">Close</button>' +
+    "</div>";
   document.body.appendChild(dlg);
 
   var form = dlg.querySelector("form"), err = dlg.querySelector(".err"), opener = null;
+  var sent = dlg.querySelector(".sent"), sendBtn = form.querySelector(".send");
   function openConnect(e) {
     opener = e && e.currentTarget;
     setOpen(false);
     err.textContent = "";
+    form.hidden = false;
+    sent.hidden = true;
     dlg.classList.remove("closing");
     dlg.showModal();
     document.body.classList.add("modal-open");
@@ -155,9 +256,24 @@
   });
   document.querySelectorAll("[data-open-connect]").forEach(function (b) { b.addEventListener("click", openConnect); });
 
-  /* No backend on a static site: Send Message opens the visitor's email app with the message filled in. */
+  sent.querySelector(".again").addEventListener("click", closeConnect);
+
+  function mailtoHref(name, email, msg) {
+    return "mailto:" + EMAIL + "?subject=" + encodeURIComponent("Portfolio inquiry from " + name) +
+      "&body=" + encodeURIComponent(msg + "\n\n" + name + "\n" + email);
+  }
+  function showError(text, name, email, msg) {
+    err.innerHTML = "";
+    err.appendChild(document.createTextNode(text + " "));
+    var a = document.createElement("a");
+    a.href = mailtoHref(name, email, msg);
+    a.textContent = "Email me directly instead.";
+    err.appendChild(a);
+  }
+
   form.addEventListener("submit", function (e) {
     e.preventDefault();
+    if (sendBtn.disabled) return;
     var name = form.name.value.trim(), email = form.email.value.trim(), msg = form.message.value.trim();
     var bad = !name ? form.name : !/^\S+@\S+\.\S+$/.test(email) ? form.email : !msg ? form.message : null;
     if (bad) {
@@ -166,10 +282,43 @@
       return;
     }
     err.textContent = "";
-    var subject = "Portfolio inquiry from " + name;
-    var body = msg + "\n\n" + name + "\n" + email;
-    window.location.href = "mailto:" + EMAIL + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body);
-    form.reset();
-    closeConnect();
+
+    if (!WEB3FORMS_KEY) {
+      window.location.href = mailtoHref(name, email, msg);
+      form.reset();
+      closeConnect();
+      return;
+    }
+
+    sendBtn.disabled = true;
+    sendBtn.textContent = "Sending…";
+    fetch("https://api.web3forms.com/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        access_key: WEB3FORMS_KEY,
+        subject: "Portfolio inquiry from " + name,
+        from_name: "Chedrick Salazar Portfolio",
+        name: name,
+        email: email,
+        message: msg,
+        botcheck: form.botcheck.checked
+      })
+    })
+      .then(function (res) { return res.json().catch(function () { return { success: false }; }); })
+      .then(function (data) {
+        if (!data.success) throw new Error(data.message || "send failed");
+        form.reset();
+        form.hidden = true;
+        sent.hidden = false;
+        sent.focus();
+      })
+      .catch(function () {
+        showError("Sorry, your message couldn’t be sent.", name, email, msg);
+      })
+      .then(function () {
+        sendBtn.disabled = false;
+        sendBtn.textContent = "Send Message";
+      });
   });
 })();
